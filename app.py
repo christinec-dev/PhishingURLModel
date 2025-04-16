@@ -7,6 +7,7 @@ import whois
 import ipaddress
 import socket
 import re
+import math
 from datetime import datetime
 from urllib.parse import urlparse
 import dns.resolver
@@ -14,27 +15,63 @@ from dotenv import load_dotenv
 import os
 import virustotal_python
 from base64 import urlsafe_b64encode
+import diskcache as dc
+import pandas as pd
 
-# Add this at the beginning of your script or function
+# Load environment variables
 load_dotenv()
+
+# Initialize cache
+cache = dc.Cache('./cache')
 
 # Load model and scaler
 model = joblib.load('phishing_model.pkl')
 scaler = joblib.load('scaler.pkl')
-load_dotenv()
+
+# Filepath for the dataset
+DATASET_FILE = './data/final_data.csv'
+
+# Legit domains
+LEGIT_DOMAINS_FILE = './data/legit_domains.txt'
+def load_legit_domains(filepath):
+    try:
+        with open(filepath, 'r') as f:
+            return set(line.strip().lower().replace('https://', '').replace('http://', '') for line in f if line.strip())
+    except Exception:
+        return set()
+LEGIT_DOMAINS = load_legit_domains(LEGIT_DOMAINS_FILE)
+
+def is_legit_domain(domain):
+    return domain.lower() in LEGIT_DOMAINS
 
 # List of high-risk TLDs and abused platforms
-HIGH_RISK_TLDS = ['xyz', 'top', 'club', 'site', 'online', 'rest', 'icu']
-ABUSED_PLATFORMS = [
-    'webflow', 'wixsite', 'wordpress', 'weebly', 'google', 'microsoft',
-    'sites.google', 'docs.google', 'drive.google', 'forms.google', 
-    'sharepoint', 'onedrive', 'office', 'bit.ly', 'tinyurl'
+HIGH_RISK_TLDS = [
+    'xyz', 'top', 'club', 'site', 'online', 'rest', 'icu', 'work', 'click', 'fit', 'gq', 'tk', 'ml', 'cf', 'ga',
+    'men', 'loan', 'download', 'stream', 'party', 'cam', 'win', 'bid', 'review', 'trade', 'accountant', 'science',
+    'date', 'faith', 'racing', 'zip', 'cricket', 'host', 'press', 'space', 'pw', 'buzz', 'mom', 'bar', 'uno',
+    'kim', 'country', 'support', 'webcam', 'rocks', 'info', 'biz', 'pro', 'link', 'pics', 'help', 'ooo',
+    'asia', 'today', 'live', 'lol', 'surf', 'fun', 'run', 'cyou', 'monster', 'store'
 ]
 SUSPICIOUS_PATTERNS = r'\d{6,}|[a-z]{2,}\d{3,}|\d+[a-z]+\d+'
 
-# Check url using virustotal
+def domain_entropy(domain):
+    """Calculate Shannon entropy of the domain part."""
+    prob = [float(domain.count(c)) / len(domain) for c in set(domain)]
+    return -sum([p * math.log(p, 2) for p in prob])
+
+def cache_analysis_results(url, analysis_results):
+    cache[url] = analysis_results
+
+def get_cached_analysis_results(url):
+    return cache.get(url)
+
+def cache_virustotal_results(url, vt_results):
+    cache[f"vt_{url}"] = vt_results
+
+def get_cached_virustotal_results(url):
+    return cache.get(f"vt_{url}")
+
 def check_url_with_virustotal(url):
-    """Check if URL already exists on VirusTotal (do NOT submit if missing)"""
     api_key = os.environ.get("VT_API_KEY")
     if not api_key:
         return {"error": "VirusTotal API key not configured"}
@@ -61,13 +98,10 @@ def check_url_with_virustotal(url):
                 return {"error": str(e)}
 
 def extract_features(url):
-    """Extract all required features for the model"""
-    # Basic URL properties
     parsed = urlparse(url)
-    domain = parsed.netloc.split(':')[0]
+    domain = parsed.netloc.split(':')[0].replace('www.', '')
     tld_extract = tldextract.extract(url)
     domain_name = f"{tld_extract.domain}.{tld_extract.suffix}"
-    
     # Extract all basic character counts
     url_length = len(url)
     n_slash = url.count('/')
@@ -79,79 +113,50 @@ def extract_features(url):
     n_asterisk = url.count('*')
     n_hastag = url.count('#')
     n_percent = url.count('%')
-    n_dots = url.count('.')
-    n_hypens = url.count('-')
-    
-    # SSL check
-    has_ssl = int(url.startswith('https'))
-    
-    # Advanced features
-    cloudflare_protected = int(is_using_cloudflare(url))
-    digit_count = sum(c.isdigit() for c in url)
-    redirects = get_redirection_count(url)
-    has_redirects = int(redirects > 0)
-    
-    # Calculate derived features
-    dots_per_length = n_dots / (url_length + 1e-10)
-    hyphens_per_length = n_hypens / (url_length + 1e-10)
-    is_long_url = int(url_length > 75)
-    has_many_dots = int(n_dots > 4)
-    
-    # Special character density
-    special_chars = (n_slash + n_questionmark + n_equal + n_at + n_and +
-                    n_exclamation + n_asterisk + n_hastag + n_percent +
-                    n_dots + n_hypens)
-    special_char_density = special_chars / (url_length + 1e-10)
-    
-    # TLD risk
-    tld = tld_extract.suffix
-    suspicious_tld_risk = 0
-    if tld in HIGH_RISK_TLDS:
-        suspicious_tld_risk += 2
-    if any(platform in domain.lower() for platform in ABUSED_PLATFORMS):
-        suspicious_tld_risk += 1
-    if re.search(SUSPICIOUS_PATTERNS, domain):
-        suspicious_tld_risk += 1
-    
-    # Risk score calculation
+    dots_per_length = url.count('.') / (url_length + 1)
+    hyphens_per_length = url.count('-') / (url_length + 1)
+    is_long_url = 1 if url_length > 200 else 0
+    has_many_dots = 1 if url.count('.') > 4 else 0
+    special_char_density = (
+        n_slash + n_questionmark + n_equal + n_at + n_and +
+        n_exclamation + n_asterisk + n_hastag + n_percent
+    ) / (url_length + 1)
+    has_ssl = 1 if url.startswith('https') else 0
+    is_cloudflare_protected = is_using_cloudflare(url)
+    suspicious_tld_risk = 1 if tld_extract.suffix in HIGH_RISK_TLDS else 0
+    n_redirection = get_redirection_count(url)
+    domain_age = get_domain_age(domain_name) or 0
     risk_score = (
         is_long_url * 2 +
         has_many_dots * 1.5 +
-        special_char_density * 10 +
-        has_redirects * 3 -
+        special_char_density * 2 +
+        n_redirection * 3 -
         has_ssl * 2 -
-        cloudflare_protected * 2 +
-        suspicious_tld_risk * 1.5
+        is_cloudflare_protected * 5 -
+        (domain_age / 365)
     )
-    
-    # URL complexity score
     url_complexity = (
         url_length * 0.01 +
-        n_dots * 0.5 +
-        n_hypens * 0.3 +
+        n_slash * 0.5 +
         n_questionmark * 0.7 +
         n_equal * 0.7 +
         n_at * 2
     )
-    
-    # Assemble final feature vector (matching your model's expected features)
     features = [
         url_length, n_slash, n_questionmark, n_equal, n_at, n_and,
         n_exclamation, n_asterisk, n_hastag, n_percent,
         dots_per_length, hyphens_per_length, is_long_url, has_many_dots,
-        has_ssl, cloudflare_protected, digit_count,
-        special_char_density, suspicious_tld_risk, has_redirects,
-        risk_score, url_complexity
+        has_ssl, is_cloudflare_protected, special_char_density,
+        suspicious_tld_risk, n_redirection, risk_score, url_complexity
     ]
     return features, domain_name
 
 def get_redirection_count(url):
-    """Check number of redirects with timeout protection"""
     count = 0
     try:
-        for _ in range(5):  # Max 5 redirects to avoid timeouts
+        for _ in range(5):
             response = requests.head(
-                url, 
+                url,
                 allow_redirects=False,
                 timeout=3,
                 headers={'User-Agent': 'Mozilla/5.0'}
@@ -166,7 +171,6 @@ def get_redirection_count(url):
     return count
 
 def is_using_cloudflare(url):
-    """Check if site is protected by Cloudflare"""
     try:
         response = requests.head(url, timeout=3)
         headers = response.headers
@@ -179,7 +183,6 @@ def is_using_cloudflare(url):
         return False
 
 def get_domain_age(domain):
-    """Get domain age in days"""
     try:
         domain_info = whois.whois(domain)
         creation_date = domain_info.creation_date
@@ -190,7 +193,6 @@ def get_domain_age(domain):
         return None
 
 def is_ip_address(url):
-    """Check if URL uses IP address instead of domain"""
     try:
         parsed = urlparse(url)
         netloc = parsed.netloc.split(':')[0]
@@ -203,90 +205,164 @@ def is_ip_address(url):
 st.title('Phishing URL Detector')
 st.write("Check if a website URL is legitimate, or a phishing attempt.")
 url = st.text_input("Enter URL to analyze:", placeholder="https://example.com")
+
 if st.button("Analyze URL"):
     if url:
+        url = url.strip()
         try:
-            # Add http:// if missing
             if not url.startswith(('http://', 'https://')):
                 url = 'http://' + url
 
-            # Display analysis in progress
-            with st.spinner("Analyzing URL..."):
-                # Extract features
-                features, domain = extract_features(url)
-                # Get domain age for additional context
-                domain_age = get_domain_age(domain)               
-                # Scale features
-                scaled_features = scaler.transform([features])              
-                # Make prediction using model
-                prediction = model.predict(scaled_features)[0]
-                probabilities = model.predict_proba(scaled_features)[0]               
-                # IP address check
-                is_ip = is_ip_address(url)               
-                # Calculate confidence and verdict
-                confidence = np.max(probabilities)
-                conf_threshold = 0.75 
-                if confidence < conf_threshold:
-                    verdict = "Unknown ❔"
-                    verdict_message = "The model is not confident enough to classify this URL. Please review manually."
-                    verdict_color = "yellow"
-                elif prediction == 1:
-                    verdict = "Phishing ⚠️"
-                    verdict_message = "This URL shows characteristics commonly associated with phishing attempts."
-                    verdict_color = "red"
+            cached_results = get_cached_analysis_results(url)
+            if cached_results:
+                st.info("Loaded results from cache.")
+                analysis_results, vt_results = cached_results
+            else:
+                with st.spinner("Analyzing URL..."):
+                    features, domain = extract_features(url)
+                    domain_age = get_domain_age(domain)
+                    scaled_features = scaler.transform([features])
+                    prediction = model.predict(scaled_features)[0]
+                    probabilities = model.predict_proba(scaled_features)[0]
+                    is_ip = is_ip_address(url)
+                    confidence = np.max(probabilities)
+                    conf_threshold = 0.6
+
+                    # Boost confidence if domain is in legit_domains.txt
+                    if is_legit_domain(domain):
+                        confidence = min(confidence + 0.5, 1.0)
+
+                    vt_results = get_cached_virustotal_results(url)
+                    if not vt_results:
+                        vt_results = check_url_with_virustotal(url)
+                        cache_virustotal_results(url, vt_results)
+
+                    if confidence < conf_threshold:
+                        if vt_results and vt_results.get("found", False):
+                            if vt_results.get("malicious", 0) > 0 or vt_results.get("suspicious", 0) > 0:
+                                verdict = "Phishing ⚠️"
+                                verdict_message = "VirusTotal flagged this URL as malicious or suspicious."
+                                verdict_color = "red"
+                            else:
+                                verdict = "Likely Legitimate ✔️"
+                                verdict_message = "VirusTotal found no issues, but model is not entirely confident."
+                                verdict_color = "green"
+                        else:
+                            verdict = "Unknown ❔"
+                            verdict_message = "There is not enough data to analyse. The model is not entirely confident and VirusTotal has no report."
+                            verdict_color = "yellow"
+                    elif prediction == 1:
+                        verdict = "Phishing ⚠️"
+                        verdict_message = "This URL shows characteristics commonly associated with phishing attempts."
+                        verdict_color = "red"
+                    else:
+                        verdict = "Legitimate ✔️"
+                        verdict_message = "This URL appears to be legitimate based on the analysis."
+                        verdict_color = "green"
+
+                    analysis_results = {
+                        "features": features,
+                        "domain": domain,
+                        "domain_age": domain_age,
+                        "confidence": confidence,
+                        "verdict": verdict,
+                        "verdict_message": verdict_message,
+                        "verdict_color": verdict_color,
+                        "is_ip": is_ip
+                    }
+                    cache_analysis_results(url, (analysis_results, vt_results))
+
+            # Save to dataset
+            try:
+                def to_int_bool(val):
+                    if isinstance(val, bool):
+                        return int(val)
+                    return val
+
+                new_data = {
+                    "url_length": analysis_results["features"][0],
+                    "n_slash": analysis_results["features"][1],
+                    "n_questionmark": analysis_results["features"][2],
+                    "n_equal": analysis_results["features"][3],
+                    "n_at": analysis_results["features"][4],
+                    "n_and": analysis_results["features"][5],
+                    "n_exclamation": analysis_results["features"][6],
+                    "n_asterisk": analysis_results["features"][7],
+                    "n_hastag": analysis_results["features"][8],
+                    "n_percent": analysis_results["features"][9],
+                    "dots_per_length": analysis_results["features"][10],
+                    "hyphens_per_length": analysis_results["features"][11],
+                    "is_long_url": to_int_bool(analysis_results["features"][12]),
+                    "has_many_dots": to_int_bool(analysis_results["features"][13]),
+                    "has_ssl": to_int_bool(analysis_results["features"][14]),
+                    "is_cloudflare_protected": to_int_bool(analysis_results["features"][15]),
+                    "special_char_density": analysis_results["features"][16],
+                    "suspicious_tld_risk": analysis_results["features"][17],
+                    "n_redirection": analysis_results["features"][18],
+                    "risk_score": analysis_results["features"][19],
+                    "url_complexity": analysis_results["features"][20],
+                    "phishing": 1 if analysis_results["verdict"] == "Phishing ⚠️" else 0
+                }
+                new_data_df = pd.DataFrame([new_data])
+                if not os.path.exists(DATASET_FILE):
+                    new_data_df.to_csv(DATASET_FILE, index=False)
                 else:
-                    verdict = "Legitimate ✔️"
-                    verdict_message = "This URL appears to be legitimate based on our analysis."
-                    verdict_color = "green"
+                    new_data_df.to_csv(DATASET_FILE, mode='a', header=False, index=False)
+                st.success("Scanned data has been saved to the dataset.")
+            except Exception as e:
+                st.error(f"Error saving data to dataset: {str(e)}")
 
             # Display results
+            analysis_results, vt_results = cached_results or (analysis_results, vt_results)
             st.subheader("Analysis Results:")
             col1, col2 = st.columns(2)
             with col1:
-                st.write(f"**Domain:** {domain}")
+                st.write(f"**Domain:** {analysis_results['domain']}")
                 st.write(f"**SSL Enabled:** {'✅' if url.startswith('https') else '❌'}")
-                st.write(f"**Cloudflare Protected:** {'✅' if features[15] else '❌'}")
-                if domain_age:
-                    st.write(f"**Domain Age:** {domain_age} days")
+                st.write(f"**Cloudflare Protected:** {'✅' if analysis_results['features'][15] else '❌'}")
+                if analysis_results['domain_age']:
+                    st.write(f"**Domain Age:** {analysis_results['domain_age']} days")
                 else:
                     st.write("**Domain Age:** Unknown")
-                st.write(f"**Confidence:** {confidence*100:.1f}%")
-                st.write(f"**Verdict:** {verdict}")
-                if verdict == "Unknown ❔":
-                    st.info(verdict_message)
-                elif verdict_color == "red":
-                    st.error(verdict_message)
-                else:
-                    st.success(verdict_message)
+                st.write(f"**Confidence:** {analysis_results['confidence']*100:.1f}%")
+                st.write(f"**Verdict:** {analysis_results['verdict']}")
             with col2:
                 st.write("**Feature Highlights:**")
-                st.write(f"URL Length: {features[0]}")
-                st.write(f"Special Characters: {sum(features[1:10])}")
-                st.write(f"Digit Count: {features[16]}")
-                st.write(f"Risk Score: {features[20]:.2f}")
-            
+                st.write(f"URL Length: {analysis_results['features'][0]}")
+                st.write(f"Special Characters: {sum(analysis_results['features'][1:9])}")
+                st.write(f"Risk Score: {analysis_results['features'][20]:.2f}")
+
+            # Verdict
+            if is_legit_domain(analysis_results['domain']):
+                st.success("This domain was found in the trusted (legit) domains list.")
+            if analysis_results['verdict'] == "Unknown ❔":
+                st.info(analysis_results['verdict_message'])
+            elif analysis_results['verdict_color'] == "red":
+                st.error(analysis_results['verdict_message'])
+            else:
+                st.success(analysis_results['verdict_message'])
+
             # Show risk factors
             risk_factors = []
-            if is_ip:
+            if analysis_results['is_ip']:
                 risk_factors.append("URL contains IP address instead of domain name")
-            if features[18] > 0:  # suspicious_tld_risk
+            if analysis_results['features'][18] > 0:  # suspicious_tld_risk
                 risk_factors.append("Domain uses a high-risk TLD or suspicious platform")
-            if features[19]:  # has_redirects
+            if analysis_results['features'][19]:  # n_redirection
                 risk_factors.append("URL contains redirects")
-            if features[12]:  # is_long_url
+            if analysis_results['features'][12]:  # is_long_url
                 risk_factors.append("Unusually long URL")
-            if features[16] > 5:  # digit_count
-                risk_factors.append("URL contains many numeric characters")
-            if not features[14]:  # has_ssl
+            if analysis_results['features'][17] > 0.05:  # special_char_density
+                risk_factors.append("URL contains a high density of special characters")
+            if not analysis_results['features'][14]:  # has_ssl
                 risk_factors.append("No SSL/HTTPS protection")
-            
+
             if risk_factors:
                 st.subheader("Risk Factors:")
                 for factor in risk_factors:
                     st.warning(factor)
-            
+
             # Show VirusTotal results
-            vt_results = check_url_with_virustotal(url)
             st.subheader("VirusTotal Analysis:")
             if "error" in vt_results:
                 st.warning(f"VirusTotal check failed: {vt_results['error']}")
@@ -297,7 +373,7 @@ if st.button("Analyze URL"):
                 st.write(f"**Suspicious Detections:** {vt_results['suspicious']}")
                 st.write(f"**Last Scan Date:** {vt_results['scan_date']}")
                 if vt_results['malicious'] > 0:
-                    risk_factors.append(f"URL flagged by {vt_results['malicious']} security vendors on VirusTotal")
+                    st.warning(f"URL flagged by {vt_results['malicious']} security vendors on VirusTotal")
         except Exception as e:
             st.error(f"Error analyzing URL: {str(e)}")
     else:

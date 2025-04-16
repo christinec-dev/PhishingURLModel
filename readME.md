@@ -2,7 +2,7 @@
 
 ## Description
 
-The purpose of this model is to classify wether or not a URL is legitimate, or a phishing attempt. Phishing is a type of social engineering attack often used to steal user data, including login credentials and credit card numbers. In this case, phishing is determined from the URL - including special characters, redirects, ssl, and domain information.
+The purpose of this model is to classify whether or not a URL is legitimate or a phishing attempt. Phishing is a type of social engineering attack often used to steal user data, including login credentials and credit card numbers. In this case, phishing is determined from the URL—analyzing features such as special characters, redirects, SSL certificates, and domain information. Additionally, we complement the model's predictions by testing against VirusTotal results and a whitelist of known legitimate domains. These external verification results are cached for future use, improving efficiency and accuracy in ongoing detection efforts.
 
 The model employs RandomForest Classification to make these predictions. Random Forest Classification is a machine learning algorithm that uses an ensemble of decision trees to make predictions, particularly for classification tasks. It combines the predictions of multiple, uncorrelated decision trees to improve accuracy and robustness. 
 
