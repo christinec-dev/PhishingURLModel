@@ -6,7 +6,7 @@ The purpose of this model is to classify wether or not a URL is legitimate, or a
 
 The model employs RandomForest Classification to make these predictions. Random Forest Classification is a machine learning algorithm that uses an ensemble of decision trees to make predictions, particularly for classification tasks. It combines the predictions of multiple, uncorrelated decision trees to improve accuracy and robustness. 
 
-To test the final model, execute `streamlit run app.py`. You can also run it via the deployed model [here]().
+To test the final model, execute `streamlit run app.py`. You can also run it via the deployed model [here](https://phishingurlmodel-gpheh7xkq9urwtjkz6eyzm.streamlit.app).
 
 ## Data Acquisition
 
