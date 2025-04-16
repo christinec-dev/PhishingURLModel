@@ -88,6 +88,9 @@ The original data aqcuired from Kaggle can be accessed through the link provided
 2. Run all cells in the notebook.
 
 ## Sample Visualization
+![Screenshot 2025-04-16 153917](https://github.com/user-attachments/assets/4ccf5e2b-29f7-4f8c-8272-fe1e9e7adc08)
+![Screenshot 2025-04-16 153848](https://github.com/user-attachments/assets/1b61cbb9-35fc-424d-84dc-efddc6e381a7)
+![Screenshot 2025-04-16 153936](https://github.com/user-attachments/assets/469bcf65-c314-4e0c-929e-42e809438c31)
 
 ## License
 This project is licensed under the MIT License - see the LICENSE file for details.
