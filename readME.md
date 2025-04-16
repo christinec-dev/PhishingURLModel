@@ -1,5 +1,7 @@
 # Phishing URL Detection: Random Forest Classification
 
+**IMPORTANT**: The notebook for this model can be run either via the instructions below, or it can be viewed directly on [Kaggle](https://www.kaggle.com/code/christinecoomans/phishing-url-detection-notebook).
+
 ## Description
 
 The purpose of this model is to classify whether or not a URL is legitimate or a phishing attempt. Phishing is a type of social engineering attack often used to steal user data, including login credentials and credit card numbers. In this case, phishing is determined from the URL—analyzing features such as special characters, redirects, SSL certificates, and domain information. Additionally, we complement the model's predictions by testing against VirusTotal results and a whitelist of known legitimate domains. These external verification results are cached for future use, improving efficiency and accuracy in ongoing detection efforts.
