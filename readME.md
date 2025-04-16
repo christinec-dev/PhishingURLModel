@@ -47,8 +47,6 @@ The original data aqcuired from Kaggle can be accessed through the link provided
 
 - **is_cloudflare_protected**: Is the URL Cloudflare protected.
 
-- **digit_count**: How many numbers are within the URL.
-
 - **special_char_density**: Ratio of special characters (*&@#) within URL.
 
 - **suspicious_tld_risk**: Risk of URL containing suspicious extensions, domains, and patterns.
@@ -72,7 +70,7 @@ The original data aqcuired from Kaggle can be accessed through the link provided
 - **model/:**
     - `notebook.ipynb`: Jupyter notebook detailing the training process.
     - `requirements.txt`: Requirements for jupyter notebook.
-- **app.py**: Streamlit application code for deployment.
+- **streamlit/app.py**: Streamlit application code for deployment.
 - **requirements.txt**: Requirements for streamlit app.
 - **README.md:** Project documentation.
 
@@ -88,9 +86,12 @@ The original data aqcuired from Kaggle can be accessed through the link provided
 2. Run all cells in the notebook.
 
 ## Sample Visualization
-![Screenshot 2025-04-16 153917](https://github.com/user-attachments/assets/4ccf5e2b-29f7-4f8c-8272-fe1e9e7adc08)
-![Screenshot 2025-04-16 153848](https://github.com/user-attachments/assets/1b61cbb9-35fc-424d-84dc-efddc6e381a7)
-![Screenshot 2025-04-16 153936](https://github.com/user-attachments/assets/469bcf65-c314-4e0c-929e-42e809438c31)
+
+*The site flagged as phishing was sourced from [PhishTank](https://phishtank.org/phish_archive.php)
+
+![Screenshot 2025-04-16 220447](https://github.com/user-attachments/assets/e7f5d955-f688-4434-975a-ed5b0d00dc3c)
+![Screenshot 2025-04-16 220302](https://github.com/user-attachments/assets/2e48e280-0654-4481-94b7-bff044a52124)
+![Screenshot 2025-04-16 220123](https://github.com/user-attachments/assets/b8693334-b7a5-456f-9a1f-d4702dea3008)
 
 ## License
 This project is licensed under the MIT License - see the LICENSE file for details.
