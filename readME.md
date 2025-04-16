@@ -10,7 +10,7 @@ To test the final model, execute `streamlit run app.py`. You can also run it via
 
 ## Data Acquisition
 
-The original data aqcuired from Kaggle can be accessed through the link provided below:
+The original data acquired from Kaggle can be accessed through the link provided below:
 - [Download Data](https://www.kaggle.com/datasets/danielfernandon/web-page-phishing-dataset)
 
 ### Key Features of the Dataset
